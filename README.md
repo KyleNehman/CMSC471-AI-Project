@@ -1,4 +1,4 @@
-#CMSC 471 Fall 2018 Project
+# CMSC 471 Fall 2018 Project
 
 Ted Talk Text Classification
 ============================
