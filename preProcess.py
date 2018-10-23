@@ -1,5 +1,3 @@
-import os
-
 def valid(word, blackList):
     return blackList.get(word) == None and not any(char.isdigit() for char in word)
 
@@ -41,10 +39,4 @@ def getFilteredData(fileName):
     file = open(fileName, "r")
     blackList = {fileName: 1}
     
-    lines = filter(file.readlines(), blackList)
-    print(lines)
-
-for fileName in os.listdir("stm"):
-    #print fileName
-    getFilteredData("stm/" + fileName)
-
+    return filter(file.readlines(), blackList)
