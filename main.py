@@ -1,136 +1,123 @@
-import os
-import nltk
 from preProcess import getFilteredData
+from preProcess import getAllUniqueTokens
 
-from cluster import calculate_beta
-from cluster import genCentroids
-from cluster import normalize
-from cluster import calculate_weight
-from cluster import findFarthest
-from cluster import findClosest
-from cluster import cosine
-from cluster import cluster
+from scipy.cluster.hierarchy import dendrogram
+from scipy.cluster.hierarchy import ward 
+from sklearn.manifold import MDS
+from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
 
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import pandas as pd
+import os
 
-# Global map of {token: [global_occurences, num_docs, last_input_file]}
-globalDict = {}
-
-# {document_name: {token: normalized_tf.idf}}
-corpusVectors = {}
-
-# Array indices in hash table value arrya
-LAST_INPUT_FILE_INDEX = 2
-GLOBAL_OCCURENCES_INDEX = 0
-DOCUMENT_OCCURENCES_INDEX = 1
-
-
-# Since we have to examine the entire corpus we must compare documents.
-# To avoid storing the whole 700+ documents in memory we will use staging files
-# That represent their individual hash maps of token to number of occurences.i
-def writeToStagingFile(map, fileName):
-    stagingFile = open("staging/" + fileName + ".staging", "w")
-
-    for key in map.keys():
-        stagingFile.write(str(key) + ": " + str(map[key]) + "\n")
-
-    stagingFile.close()
-
+# Computes both a hierarchical agglomerative cluster and a k-means (5) 
 def main():
-    try:
-        os.mkdir("staging")
-    except:
-        x = None #Ignoring an exception here
+    documents = []
+    
+    path = "input/stm/"
+    numClusters = 5
+    clusterColors = {  0: '#FF33D4', 
+                        1: '#FCFF33', 
+                        2: '#3358FF', 
+                        3: '#33FFE3', 
+                        4: '#FF5733'
+    }
 
-    # Loop all documents, add tokenized data to maps and 
-    # Temporary staging files.
-    numDocuments = 0
-    for fileName in os.listdir("input"):
-        validWords = {}
-        docTokens = getFilteredData("input/" + fileName)
-        docTags = nltk.pos_tag(docTokens)
+    # Iterate files in the input $path and append to a list of strings
+    fileNames = []
+    files = os.listdir(path)
+    for i in range(0, len(files)):
 
-        numDocuments += 1
-        for token in docTags:
-            part = token[1]
-            word = token[0]
-
-            # If is verb or noun add to local and global maps
-            if "VB" in part or "NN" in part:
-
-                # Local
-                if validWords.get(word) == None:
-                    validWords[word] = 1
-                else:
-                    validWords[word] += 1
-
-                # Global + "metadata"
-                if globalDict.get(token) != None:
-                    globalDict[token][GLOBAL_OCCURENCES_INDEX] += 1
-
-                    # Have to keep track of the last input file in order to track the number of documents token occurs in.
-                    if globalDict[token][LAST_INPUT_FILE_INDEX] != fileName:
-                        globalDict[token][DOCUMENT_OCCURENCES_INDEX] += 1
-                        globalDict[token][LAST_INPUT_FILE_INDEX] = fileName
-                    
-                else:
-                    globalDict[token] = []
-                    
-                    globalDict[token].append(1) # global count
-                    globalDict[token].append(1) # document occurences count
-                    globalDict[token].append(fileName) # last edited file count
-
-        writeToStagingFile(validWords, fileName)
-
-    # Start processing now that each document has been examined once
-    documentNames = []
-    for fileName in os.listdir("staging"):
-        stagingFile = open("staging/" + fileName, "r")
-        lines = stagingFile.readlines()
-
-        sum_of_squared_betas = 0
-        total_freq = 0
+        doc = ""
+        fileName = files[i]
+        fileNames.append(fileName)
+        file = open(path + fileName, "r")
+        lines = file.readlines()
         for line in lines:
-            freq = int(line.split(': ')[1])
-            beta = calculate_beta(line, globalDict, numDocuments)
-            if beta == None:
-                continue
-            
-            sum_of_squared_betas = beta * beta
-            total_freq += freq
-        
-        stagingFile.close()
-        os.remove("staging/" + fileName)
+            doc += line + "\n"
+        documents.append(doc)
 
-        documentNames.append(fileName) 
-        corpusVectors[fileName] = {}
-        for line in lines:
-            split = line.split(': ')
-            token = split[0]
-            freq  = split[1]
-            
-            weight = calculate_weight(line, sum_of_squared_betas, globalDict, numDocuments)
-            weight = normalize(weight, freq, total_freq)
+    # Build tfidf matrix from documents
+    vectorizer = TfidfVectorizer(max_df=0.8, max_features=200000,
+            min_df=0.1, 
+            use_idf=True, tokenizer=getFilteredData, ngram_range=(1,3))
 
-            corpusVectors[fileName][token.lower()] = weight
+    matrix = vectorizer.fit_transform(documents)
+
+    # Get unique tokens, featured names for vocabFrames from docs
+    allVocab = getAllUniqueTokens(documents)
+    featureNames = vectorizer.get_feature_names()
+    vocabFrame = pd.DataFrame({'words': allVocab}, index=allVocab)
    
+    # Calc simularity and k-means cluster
+    dist = 1 - cosine_similarity(matrix)
+    km = KMeans(n_clusters=numClusters)
+    km.fit(matrix)
+    clusters = km.labels_.tolist()
 
-    # Start real simularity and clustering calculations!
-    simMatrix = []
+    # Separate Agglomerative Cluster for comparison
+    linkage_matrix = ward(dist) 
 
-    for i in range(numDocuments):
-        inner = []
-        for j in range(numDocuments):
-            inner.append(0)
-        simMatrix.append(inner)
+    # Generate the dendrogram for the hierarchical cluster 
+    fig, ax = plt.subplots(figsize = (20, 33)) 
+    ax = dendrogram(linkage_matrix, orientation = "left", labels=fileNames)
+    plt.tick_params( axis= 'x', which='both', bottom = 'off', top = 'off', labelbottom='off')
+    plt.tight_layout() 
+
+    plt.savefig('agglomerative.png', dpi = 400) 
+    plt.close()                          
+
+
+    # Build labels based on k-means clustered data
+    clusterNames = {}
+    clusterCenters = km.cluster_centers_.argsort()[:, ::-1]
+    for i in range(numClusters):
+        topic = ""
+        for ind in clusterCenters[i, :3]:
+            topic += str(vocabFrame.ix[featureNames[ind].split(' ')].values.tolist()[0][0]) + " "
         
-    for i in range(numDocuments):
-        v = documentNames[i]
-        for j in range(i, numDocuments):
-            w = documentNames[j]
-            cs = cosine(v, w, corpusVectors)
-            simMatrix[i][j] = cs
+        clusterNames[i] = topic
 
-    centroids = genCentroids(simMatrix)
-    bigL = cluster(centroids)
 
+    # Begin visual representation!
+    MDS()
+    mds = MDS(n_components = 2, dissimilarity = "precomputed", random_state  =1)
+    position = mds.fit_transform(dist)  
+
+    xs, ys = position[:, 0], position[:, 1]
+    dataFrame = pd.DataFrame(dict(x = xs, y = ys, label = clusters, title = fileNames)) 
+    
+    # CSS Borrowed from stackoverflow
+    css = """
+    text.mpld3-text, div.mpld3-tooltip {
+              font-family:Arial, Helvetica, sans-serif;
+              }
+
+    g.mpld3-xaxis, g.mpld3-yaxis {
+            display: none; }
+    """
+
+    fig, ax = plt.subplots(figsize=(14,6)) 
+    ax.margins(0.03) 
+
+    # Matplotlibs group labels and axis
+    groups = dataFrame.groupby('label')
+    for name, group in groups:
+        ax.plot(group.x, group.y, marker = 'o', linestyle = '', ms = 12, label = clusterNames[name], color = clusterColors[name], mec = 'none')
+        ax.set_aspect('auto')
+        ax.tick_params(axis = 'x', which = 'both', bottom = 'off', top = 'off', labelbottom = 'off')
+        ax.tick_params(axis = 'y', which = 'both', left = 'off', top = 'off', labelleft = 'off')
+
+    # Set the legend to only use one point
+    ax.legend(numpoints=1)  
+
+    # Matplotlibs Labels 
+    for i in range(len(dataFrame)):
+        ax.text(dataFrame.ix[i]['x'], dataFrame.ix[i]['y'], dataFrame.ix[i]['title'], size=8)  
+
+    # Display K Means
+    plt.show() 
 main()

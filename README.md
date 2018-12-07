@@ -1,13 +1,16 @@
-# CMSC 471 Fall 2018 Project
+# Clustering of Ted Talks 
+Preforms agglomerative and k-means clustering of ted talks
 
-Ted Talk Text Classification
-============================
+# Input Files
+STM Files tokenized and read as input
+http://www.openslr.org/resources/7/TEDLIUM_release1.tar.gz
 
-### Currently:
-Unsupervised alg that tokenizes input and calculates tf.idf across the corpus. 
-Clustering is implemented via hierarchical agglomerative clustering with the group average link method.
+# Dependencies (Installed with pip3)
+sklearn
+matplotlib
+pandas
+nltk
 
-### If we switch to supervised algs:
-Most likely using [keras](https://github.com/raghakot/keras-text)
-* [Relevant keras classification](https://cloud.google.com/blog/products/gcp/intro-to-text-classification-with-keras-automatically-tagging-stack-overflow-posts)
-* [Sequential Model](https://keras.io/models/sequential/)
+# Running the code
+python3 main.py
+Input files (stms) are assumed to be in "input/stm/"
